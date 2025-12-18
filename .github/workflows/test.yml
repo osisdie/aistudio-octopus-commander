@@ -1,0 +1,115 @@
+name: Test Build and Render
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Type check
+      run: |
+        npx tsc --noEmit --project tsconfig.json
+        npx tsc --noEmit --project tsconfig.node.json
+    
+    - name: Build project
+      run: npm run build
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || 'test-key' }}
+    
+    - name: Start preview server
+      run: |
+        npx vite preview --port 4173 --host 0.0.0.0 &
+        echo $! > server.pid
+        sleep 2
+    
+    - name: Wait for server to be ready
+      run: |
+        echo "Waiting for server to start..."
+        timeout=30
+        counter=0
+        while ! curl -f http://localhost:4173 > /dev/null 2>&1; do
+          if [ $counter -ge $timeout ]; then
+            echo "❌ Server failed to start within ${timeout} seconds"
+            exit 1
+          fi
+          echo "Waiting... (${counter}/${timeout})"
+          sleep 1
+          counter=$((counter + 1))
+        done
+        echo "✅ Server is ready"
+    
+    - name: Test page renders without errors
+      run: |
+        node --input-type=module -e "
+        import http from 'http';
+        
+        const url = 'http://localhost:4173';
+        const timeout = 10000;
+        
+        const request = http.get(url, { timeout }, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              // Check for key content that indicates successful render
+              const hasTitle = data.includes('Octopus Commander') || data.includes('OCTOPUS');
+              const hasRoot = data.includes('id=\"root\"');
+              const hasScript = data.includes('index.tsx') || data.includes('type=\"module\"');
+              
+              if (hasTitle && hasRoot && hasScript) {
+                console.log('✅ Home page renders successfully');
+                console.log('✅ Found root element and scripts');
+                process.exit(0);
+              } else {
+                console.error('❌ Home page content validation failed');
+                console.error('Has title:', hasTitle);
+                console.error('Has root:', hasRoot);
+                console.error('Has script:', hasScript);
+                console.error('Content preview:', data.substring(0, 1000));
+                process.exit(1);
+              }
+            } else {
+              console.error('❌ Server returned status code:', res.statusCode);
+              process.exit(1);
+            }
+          });
+        });
+        
+        request.on('error', (err) => {
+          console.error('❌ Failed to connect to server:', err.message);
+          process.exit(1);
+        });
+        
+        request.on('timeout', () => {
+          console.error('❌ Request timeout');
+          request.destroy();
+          process.exit(1);
+        });
+        "
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        if [ -f server.pid ]; then
+          kill $(cat server.pid) 2>/dev/null || true
+          rm server.pid
+        fi
+        pkill -f "vite preview" || true
+
