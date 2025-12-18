@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type FC } from 'react';
 import { GameState, Difficulty, Color, Direction, Command, ScoreEntry } from './types';
-import { DIFFICULTY_SETTINGS } from './constants';
+import { DIFFICULTY_SETTINGS, NOT_COMMAND_PROBABILITY } from './constants';
 import * as Storage from './services/storage';
 import * as GeminiService from './services/geminiService';
 import OctopusAvatar from './components/OctopusAvatar';
@@ -8,18 +8,6 @@ import GameButton from './components/Button';
 import Leaderboard from './components/Leaderboard';
 
 // Helper to get random command with negation
-const getRandomCommand = (): Command => {
-  const colors = [Color.RED, Color.WHITE];
-  const directions = [Direction.UP, Direction.DOWN];
-  // 15% chance for NOT commands (Target: 10-20%)
-  const isNegated = Math.random() < 0.15;
-
-  return {
-    color: colors[Math.floor(Math.random() * colors.length)],
-    direction: directions[Math.floor(Math.random() * directions.length)],
-    isNegated
-  };
-};
 
 // Helper for TTS
 const speak = (text: string) => {
@@ -34,7 +22,7 @@ const speak = (text: string) => {
   }
 };
 
-const App: React.FC = () => {
+const App: FC = () => {
   // Global State
   const [gameState, setGameState] = useState<GameState>(GameState.MENU);
   const [playerName, setPlayerName] = useState<string>('');
@@ -59,6 +47,43 @@ const App: React.FC = () => {
   // Refs for timing
   const roundStartTimeRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
+  const lastCommandWasNegatedRef = useRef<boolean>(false);
+  const startRoundUpdatedRef = useRef<(() => void) | null>(null);
+
+  // Helper to calculate dynamic wait time that reduces as rounds progress
+  const getDynamicWaitTime = useCallback((currentRound: number, config: typeof DIFFICULTY_SETTINGS[Difficulty]): number => {
+    // Hard mode already has waitTime: 1, no need to reduce
+    if (difficulty === Difficulty.HARD) {
+      return config.waitTime;
+    }
+    
+    // For Easy and Normal, reduce wait time from initial to 1 second as rounds progress
+    const progress = currentRound / config.rounds; // 0 to 1
+    const minWaitTime = 1;
+    const dynamicWaitTime = config.waitTime - (config.waitTime - minWaitTime) * progress;
+    
+    // Ensure it doesn't go below 1 second
+    return Math.max(minWaitTime, Math.round(dynamicWaitTime * 10) / 10); // Round to 1 decimal
+  }, [difficulty]);
+
+  // Helper to get random command with negation (moved inside component to access ref)
+  const getRandomCommand = useCallback((): Command => {
+    const colors = [Color.RED, Color.WHITE];
+    const directions = [Direction.UP, Direction.DOWN];
+    
+    // 15% chance for NOT commands, but prevent consecutive NOTs
+    let isNegated = Math.random() < NOT_COMMAND_PROBABILITY;
+    if (lastCommandWasNegatedRef.current && isNegated) {
+      // If last command was negated, force this one to be non-negated
+      isNegated = false;
+    }
+
+    return {
+      color: colors[Math.floor(Math.random() * colors.length)],
+      direction: directions[Math.floor(Math.random() * directions.length)],
+      isNegated
+    };
+  }, []);
 
   // Load Leaderboard on mount
   useEffect(() => {
@@ -106,10 +131,12 @@ const App: React.FC = () => {
         setTimeout(() => endGame(true), 500);
     } else {
         // CONTINUE
+        const nextRound = currentRound + 1;
         setCurrentRound(prev => prev + 1);
-        setTimeout(startRound, config.waitTime * 1000);
+        const waitTime = getDynamicWaitTime(nextRound, config);
+        setTimeout(startRound, waitTime * 1000);
     }
-  }, [currentRound, difficulty]);
+  }, [currentRound, difficulty, getDynamicWaitTime]);
 
   const endGame = useCallback(async (victory: boolean) => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -175,11 +202,12 @@ const App: React.FC = () => {
     // Generate Command
     const cmd = getRandomCommand();
     setCurrentCommand(cmd);
+    lastCommandWasNegatedRef.current = cmd.isNegated;
     
     // Octopus Speaks
     setSpeaking(true);
     const spokenText = cmd.isNegated 
-      ? `${cmd.color} NOT ${cmd.direction}` 
+      ? `${cmd.color} not ${cmd.direction}` 
       : `${cmd.color} ${cmd.direction}`;
     speak(spokenText);
     
@@ -223,10 +251,16 @@ const App: React.FC = () => {
         setTimeout(() => triggerEndGame(true), 500);
     } else {
         // CONTINUE
+        const nextRound = currentRound + 1;
         setCurrentRound(prev => prev + 1);
-        setTimeout(startRound, config.waitTime * 1000);
+        const waitTime = getDynamicWaitTime(nextRound, config);
+        setTimeout(() => {
+          if (startRoundUpdatedRef.current) {
+            startRoundUpdatedRef.current();
+          }
+        }, waitTime * 1000);
     }
-  }, [currentRound, difficulty, startRound]); // Removed cyclic dependency on triggerEndGame by relying on stable function identity if possible, but triggers are usually fine.
+  }, [currentRound, difficulty, getDynamicWaitTime]); // Removed cyclic dependency by using ref
 
   // We need to ensure `handleTimeout` and `handleInput` use `successEffectUpdated`
   // Since `handleTimeout` is memoized and passed to `startRound`, we need to update it.
@@ -299,10 +333,11 @@ const App: React.FC = () => {
     
     const cmd = getRandomCommand();
     setCurrentCommand(cmd);
+    lastCommandWasNegatedRef.current = cmd.isNegated;
     
     setSpeaking(true);
     const spokenText = cmd.isNegated 
-      ? `${cmd.color} NOT ${cmd.direction}` 
+      ? `${cmd.color} not ${cmd.direction}` 
       : `${cmd.color} ${cmd.direction}`;
     speak(spokenText);
     
@@ -325,7 +360,12 @@ const App: React.FC = () => {
       }
     }, intervalMs);
 
-  }, [currentRound, difficulty, handleTimeoutUpdated]);
+  }, [currentRound, difficulty, handleTimeoutUpdated, getRandomCommand]);
+
+  // Store the function in ref to break circular dependency
+  useEffect(() => {
+    startRoundUpdatedRef.current = startRoundUpdated;
+  }, [startRoundUpdated]);
 
   // Wiring up the startup to the updated startRound
   const startGameUpdated = () => {
@@ -339,6 +379,7 @@ const App: React.FC = () => {
     setGameState(GameState.PLAYING);
     setOctopusMood('neutral');
     setGeminiComment('');
+    lastCommandWasNegatedRef.current = false; // Reset on new game
     
     setTimeout(startRoundUpdated, 1000);
   };
@@ -446,8 +487,7 @@ const App: React.FC = () => {
                {currentCommand && !isWaiting ? (
                  <div className="text-3xl md:text-4xl font-black tracking-widest animate-pulse flex flex-col items-center text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
                    {/* Uniform Styling for all commands */}
-                   {currentCommand.isNegated ? "NOT " : ""}
-                   {currentCommand.color} {currentCommand.direction}
+                   {currentCommand.color} {currentCommand.isNegated ? "not " : ""}{currentCommand.direction}
                  </div>
                ) : (
                  <div className="text-slate-500 italic">Wait for it...</div>

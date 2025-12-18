@@ -1,11 +1,11 @@
-import React from 'react';
+import { type FC } from 'react';
 import { ScoreEntry } from '../types';
 
 interface LeaderboardProps {
   scores: ScoreEntry[];
 }
 
-const Leaderboard: React.FC<LeaderboardProps> = ({ scores }) => {
+const Leaderboard: FC<LeaderboardProps> = ({ scores }) => {
   return (
     <div className="bg-slate-800/80 rounded-xl p-6 backdrop-blur-sm border border-slate-700 w-full max-w-2xl max-h-96 overflow-y-auto custom-scrollbar">
       <h3 className="text-2xl font-bold mb-4 text-center text-cyan-400">Deep Sea Legends</h3>

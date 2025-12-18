@@ -1,4 +1,4 @@
-import React from 'react';
+import { type FC } from 'react';
 import { Color } from '../types';
 
 interface OctopusAvatarProps {
@@ -7,7 +7,7 @@ interface OctopusAvatarProps {
   leftLegsColor: Color;
 }
 
-const OctopusAvatar: React.FC<OctopusAvatarProps> = ({ speaking, mood, leftLegsColor }) => {
+const OctopusAvatar: FC<OctopusAvatarProps> = ({ speaking, mood, leftLegsColor }) => {
   // Determine leg colors
   const leftFill = leftLegsColor === Color.RED ? '#ef4444' : '#f8fafc';
   const rightFill = leftLegsColor === Color.RED ? '#f8fafc' : '#ef4444';

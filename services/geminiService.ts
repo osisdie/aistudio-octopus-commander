@@ -1,7 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { Difficulty } from "../types";
+import { GEMINI_MODEL_NAME } from "../constants";
 
-const apiKey = process.env.API_KEY;
+const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
 
 export const generateGameCommentary = async (
   name: string,
@@ -30,7 +31,7 @@ export const generateGameCommentary = async (
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: GEMINI_MODEL_NAME,
       contents: prompt,
     });
 

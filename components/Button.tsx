@@ -1,4 +1,4 @@
-import React from 'react';
+import { type FC } from 'react';
 import { Color, Direction } from '../types';
 
 interface GameButtonProps {
@@ -8,7 +8,7 @@ interface GameButtonProps {
   disabled: boolean;
 }
 
-const GameButton: React.FC<GameButtonProps> = ({ color, direction, onClick, disabled }) => {
+const GameButton: FC<GameButtonProps> = ({ color, direction, onClick, disabled }) => {
   const baseColor = color === Color.RED ? 'bg-red-500 hover:bg-red-400' : 'bg-slate-100 hover:bg-white';
   const textColor = color === Color.RED ? 'text-white' : 'text-slate-900';
   const borderColor = color === Color.RED ? 'border-red-700' : 'border-slate-300';

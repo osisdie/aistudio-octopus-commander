@@ -23,3 +23,9 @@ export const DIFFICULTY_SETTINGS: Record<Difficulty, DifficultyConfig> = {
 
 export const LEADERBOARD_KEY = 'octopus_leaderboard';
 export const MAX_LEADERBOARD_ENTRIES = 15;
+
+// Game mechanics
+export const NOT_COMMAND_PROBABILITY = 0.15; // 15% chance for NOT commands (Target: 10-20%)
+
+// AI Service
+export const GEMINI_MODEL_NAME = 'gemini-2.5-flash-lite';
