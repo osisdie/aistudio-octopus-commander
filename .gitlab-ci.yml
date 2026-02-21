@@ -1,0 +1,73 @@
+stages:
+  - test
+  - build
+
+variables:
+  NODE_VERSION: "20"
+
+default:
+  image: node:${NODE_VERSION}
+  cache:
+    key:
+      files:
+        - package-lock.json
+      prefix: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+    policy: pull-push
+
+install:
+  stage: .pre
+  script:
+    - npm ci
+
+typecheck:
+  stage: test
+  script:
+    - npm ci
+    - npx tsc --noEmit --project tsconfig.json
+    - npx tsc --noEmit --project tsconfig.node.json
+
+build:
+  stage: build
+  script:
+    - npm ci
+    - npm run build
+  variables:
+    GEMINI_API_KEY: ${GEMINI_API_KEY}
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 7 days
+
+render_test:
+  stage: build
+  needs:
+    - build
+  script:
+    - npm ci
+    - npx vite preview --port 4173 --host 0.0.0.0 &
+    - sleep 3
+    - |
+      echo "Waiting for server to start..."
+      timeout=30
+      counter=0
+      while ! curl -sf http://localhost:4173 > /dev/null 2>&1; do
+        if [ $counter -ge $timeout ]; then
+          echo "Server failed to start within ${timeout} seconds"
+          exit 1
+        fi
+        echo "Waiting... (${counter}/${timeout})"
+        sleep 1
+        counter=$((counter + 1))
+      done
+      echo "Server is ready"
+    - |
+      BODY=$(curl -sf http://localhost:4173)
+      echo "$BODY" | grep -q 'id="root"' && echo "Found root element" || { echo "Missing root element"; exit 1; }
+      echo "$BODY" | grep -q 'type="module"' && echo "Found module script" || { echo "Missing module script"; exit 1; }
+      echo "Render test passed"
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 7 days
